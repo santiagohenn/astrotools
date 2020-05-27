@@ -9,7 +9,7 @@ import java.util.LinkedHashMap;
 import astrotools.tools.Simulation;
 import astrotools.tools.Transformations;
 
-public class Optimization4 {
+public class GradientSearch {
 	
 	static Scenario scenario = new Scenario();
 	static LinkedHashMap<String,ArrayList<long[]>> chainAccess = new LinkedHashMap<String,ArrayList<long[]>>();
