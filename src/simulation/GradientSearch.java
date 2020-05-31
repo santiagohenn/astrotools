@@ -13,20 +13,18 @@ public class GradientSearch {
 	
 	static Scenario scenario = new Scenario();
 	static LinkedHashMap<String,ArrayList<long[]>> chainAccess = new LinkedHashMap<String,ArrayList<long[]>>();
-	
 	static List<Double> MRT = new ArrayList<Double>();
 	static List<Long> MCG = new ArrayList<Long>();
-	
 	static ArrayList<double[]> solutions = new ArrayList<double[]>();
-	
-	LinkedHashMap <String,double[][]> solSpaceSat = new LinkedHashMap <String,double[][]>();
+	static LinkedHashMap <String,double[][]> solSpaceSat = new LinkedHashMap <String,double[][]>();
 	private static Simulation sim = new Simulation();
-	
+	static List<Double> latsDone = new ArrayList<Double>();
 	static final double RE = 6378135;
 	
-	static double MCGmax = 2*60;
-	static double latMax = 80;
-	static double visTH = 5;
+	static double satHeight = 700;		// Satellite height in Km
+	static double MCGmax = 120;			// Maximum Coverage Gap in minutes
+	static double latMax = 60;			// Maximum coverage latitude
+	static double visTH = 40;			// Visibility TH in degrees
 	
 	static Random random = new Random();
 	
@@ -34,13 +32,6 @@ public class GradientSearch {
 		
         scenario.setTimePeriod("2020-03-10T11:00:00.000", "2020-03-10T23:00:00.000");
         scenario.setTimeStep(120);
-        
-        MCGmax = 2*60;				// Maximum Coverage Gap in minutes
-        double satHeight = 700;		// Satellite height in Km
-        visTH = 5;					// Visibility TH in degrees
-        latMax = 80;				// Maximum coverage latitude
-        
-		scenario.printFacs();
         
         // Standard satellite elements
 		double smAxis = satHeight*1000 + RE;
@@ -52,7 +43,9 @@ public class GradientSearch {
 		
 		double[] dummyElements = {smAxis,ecc,inc,argOfPerigee,RAAN,meanAnom};
 		
-		// double tMax = Transformations.getMaxAccess(dummyElements, visTH);
+		double tMax = Transformations.getMaxAccess(dummyElements, visTH);
+		
+		System.out.println("tMax: " + tMax);
 		
 		double lambda = getLambdaDeg(visTH,dummyElements);
 		
@@ -63,9 +56,23 @@ public class GradientSearch {
 		
 		/* You may change the maximum satellites at your criteria, otherwise
 		 * the algorithm will populate satellites on the same plane until overlapping occurs */
-		// int maxSats = (int) Math.ceil(360/lambda);
+		int maxSats = (int) Math.ceil(360/lambda);
+		maxSats = 5;
+		System.out.println("Maximum satellite per plane: " + maxSats);
+
+		/* Simulated annealing variables */
+		int itMax = 1200;
+		double[][] graph = new double[itMax][3];
+		double tInit = (-15)/Math.log(0.85);	// delta expected / log of probability of acceptance at beginning
+		double tEnd = (-15)/Math.log(0.001);	// delta expected / log of probability of acceptance at end
+		System.out.println("tInit: " + tInit + " tEnd " + tEnd);
+		double ratio = Math.pow((tEnd/tInit), (1.0/(itMax-1)));	// fractional reduction every cycle
+		System.out.println("Fractional reduction: " + ratio); 
 		
-		double[] profit = {MCGmax,MCGmax,MCGmax};
+		double[] profit = {0,scenario.getTimeSpan(),scenario.getTimeSpan()};
+		
+		double[][] sol = new double[3][4];	// Number of planes, Number of sats per plane, inclination, cost
+		
 		double[][] solSpace = {
 				{5,6},
 				{2,8},
@@ -73,11 +80,16 @@ public class GradientSearch {
 				};
 		
 		// Initial solution:
-		
 		int nPlanes = 2;
 		int nSats = 1;
 		
 		double rstInc = inc;
+		
+		int discarted = 0;
+		int discarted2 = 0;
+		int discarted3 = 0;
+		int discarted4 = 0;
+		
 		boolean go = true;
 		boolean found = false;
 		
@@ -139,31 +151,50 @@ public class GradientSearch {
 				MCG.add(getMCG(gaps));
 			}
 			
+			profit[0] = (double) Collections.max(MCG)/(1000.0*60.0);
+			
+			System.out.println("Metric: " + profit[0]);
+
+			int n = 2;
+			latsDone.clear();
 			
 			// Make decision
 			if (profit[0] <= MCGmax){
 
 				System.out.println("Possible best solution. Testing with more granularity");
-				scenario.setTimePeriod("2020-03-10T11:00:00.000", "2020-03-17T11:00:00.000");
+				scenario.setTimePeriod("2020-03-10T11:00:00.000", "2020-03-13T11:00:00.000");
 				
-				for (double res = 4; res<=16; res=2*res){
+				for (n = 1; n<=4; n++){
 					
+					double res=Math.pow(2, n);
 					scenario.clearAll();
 					chainAccess.clear();
 
 			        double step;
+			        double firstStep;
 			        double lastStep;
+
+		        	System.out.println("Granularity: " + res);
 		        	
 		        	step = latMax/res;
 		        	lastStep = latMax - step;
 		        	
+		        	if (n==1){
+		        		firstStep = 0;
+		        	} else {
+		        		firstStep = step;
+		        	}
+		        	
 		    		// Grid
-		    		for (double lat = step; lat<=lastStep; lat+=step){
-		    			gridRes = MCGmax*0.25/Math.cos(Math.toRadians(lat));
-		    			nFacs = (int) Math.round(360/gridRes);
-		    			for (int fac = 0; fac < nFacs; fac ++){
-		    				Facility facility = new Facility("g_"+fac+"_"+lat,lat,fac*gridRes,0.0,visTH);
-		    				scenario.addFacility(facility);
+		    		for (double lat = firstStep; lat<=lastStep; lat+=step){
+		    			if (!latsDone.contains(lat)){
+		    				latsDone.add(lat);
+			    			gridRes = MCGmax*0.25/Math.cos(Math.toRadians(lat));
+			    			nFacs = (int) Math.round(360/gridRes);
+			    			for (int fac = 0; fac < nFacs; fac ++){
+			    				Facility facility = new Facility("g_"+fac+"_"+lat,lat,fac*gridRes,0.0,visTH);
+			    				scenario.addFacility(facility);
+			    			}
 		    			}
 		    		}
 			        
@@ -207,15 +238,31 @@ public class GradientSearch {
 						found = true;
 						System.out.println("Req. compliant solution found!");
 						System.out.println(profit[0] + "\t" + nPlanes + "\t" + nSats + "\t" + inc);
-						double[] estoyApurado = {nPlanes,nSats,inc,profit[0]};
-						solutions.add(estoyApurado);
+						double[] tempSol = {nPlanes,nSats,inc,profit[0]};
+						solutions.add(tempSol);
 					}
 
 					else {
+						
+						switch (n){
+						case(2):
+							discarted2++;
+							break;
+						case(3):
+							discarted3++;
+							break;
+						case(4):
+							discarted4++;
+							break;
+						}
+					}
+						
 						System.out.println("Rejecting move when granularity was increased");
 					}
 					
-					}
+				else {
+					discarted++;
+				}
 			
 			inc = inc + 1.5;
 			if (inc > 90 || found){
@@ -235,9 +282,14 @@ public class GradientSearch {
 				found = false;
 				
 			}
-
-			// Iterate
+			
 		}
+			
+		System.out.println("Discarted solutions 1: " + discarted);
+		System.out.println("Discarted solutions 2: " + discarted2);
+		System.out.println("Discarted solutions 3: " + discarted3);
+		System.out.println("Discarted solutions 4: " + discarted4);
+			
 		
 		for (double[] s : solutions){
 			System.out.println("Solution with MCG: " + s[3] + " , p: " + s[0] + " , s: "+ s[1] + " , inc: " + s[2]);
