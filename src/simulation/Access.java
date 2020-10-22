@@ -1,9 +1,9 @@
 package simulation;
 
 public class Access {
-	
-	public Access(){
-		
-	}
+
+    public Access() {
+
+    }
 
 }
